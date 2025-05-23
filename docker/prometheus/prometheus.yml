@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "testapp"
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+
+remote_write:
+  - url: "http://host.docker.internal:9201/api/v1/write"
