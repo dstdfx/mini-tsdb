@@ -8,3 +8,7 @@ scrape_configs:
 
 remote_write:
   - url: "http://host.docker.internal:9201/api/v1/write"
+
+remote_read:
+  - url: 'http://host.docker.internal:9201/api/v1/read'
+    read_recent: true  # always read the most recent data

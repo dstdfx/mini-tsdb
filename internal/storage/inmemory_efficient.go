@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"errors"
 	"sort"
 	"sync"
 
@@ -25,7 +24,7 @@ type InMemoryEfficient struct {
 	lastSeriesID  SeriesID                                // id of the last used series identifier
 	series        map[SeriesID][]domain.Sample            // used to map series identifier to a slice of samples
 	invertedIndex map[LableName]map[LabelValue][]SeriesID // used to map series with specific labels and names
-	labelsByID    map[SeriesID]map[LableName]LabelValue   // do we really need to store the values?
+	labelsByID    map[SeriesID]map[LableName]LabelValue   // series id to the labels and values
 	seriesHash    map[LabelsHash]SeriesID                 // to check if we already had a sequence of labels before
 }
 
@@ -112,19 +111,20 @@ func (s *InMemoryEfficient) buildLabelsHash(labels []domain.Label) LabelsHash {
 	return LabelsHash(h.Sum64())
 }
 
-// TODO: change the interface to match the request
-func (s *InMemoryEfficient) Read(labels []domain.Label) ([]domain.Sample, error) {
+func (s *InMemoryEfficient) Read(
+	fromMs,
+	toMs int64,
+	labelMatchers []domain.LabelMatcher) ([]domain.TimeSeries, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	currentHash := s.buildLabelsHash(labels)
+	timeSeries := make([]domain.TimeSeries, 0)
 
-	// Check if we already had this sequence of labels
-	seriesID, isKnownHash := s.seriesHash[currentHash]
-	if !isKnownHash {
-		return nil, errors.New("no data for these labels")
-	}
+	// TODO:
+	// 1. go over all labels with EQ in request
+	// 2. check inverted index for which series id have these exact labels/values
+	// 3. do set intersection on each step
+	// 4. check for NEQ
 
-	// TODO: for now - just return all we have
-	return s.series[seriesID], nil
+	return timeSeries, nil
 }
