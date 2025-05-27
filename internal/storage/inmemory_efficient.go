@@ -114,17 +114,94 @@ func (s *InMemoryEfficient) buildLabelsHash(labels []domain.Label) LabelsHash {
 func (s *InMemoryEfficient) Read(
 	fromMs,
 	toMs int64,
-	labelMatchers []domain.LabelMatcher) ([]domain.TimeSeries, error) {
+	labelMatchers []domain.LabelMatcher) (timeSeries []domain.TimeSeries, err error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	timeSeries := make([]domain.TimeSeries, 0)
+	// Find values that match with all given lables
+	seriesIDs := make([]SeriesID, 0)
+	for _, l := range labelMatchers {
+		// Skip non EQ types
+		if l.Type != domain.EQ {
+			continue
+		}
+
+		values, ok := s.invertedIndex[LableName(l.Name)]
+		if !ok {
+			// No matching values - abort further checking
+			return
+		}
+
+		ids, ok := values[LabelValue(l.Value)]
+		if !ok {
+			// No matching values - abort further checking
+			return
+		}
+
+		if len(seriesIDs) == 0 {
+			// Init case: when it's the very first slice so
+			// there's nothing to intersect it with
+			seriesIDs = ids
+		} else {
+			// Otherwise just find intersection to leave only the
+			// ids that matched
+			seriesIDs = FindIntersection(seriesIDs, ids)
+			if len(seriesIDs) == 0 {
+				// No matching values - abort further checking
+				return
+			}
+		}
+	}
+
+	// Collect labels and samples for matching ids
+	for _, id := range seriesIDs {
+		ts := domain.TimeSeries{}
+		ts.Samples = s.series[id]
+
+		for k, v := range s.labelsByID[id] {
+			ts.Labels = append(ts.Labels, domain.Label{
+				Name:  string(k),
+				Value: string(v),
+			})
+		}
+
+		timeSeries = append(timeSeries, ts)
+	}
 
 	// TODO:
-	// 1. go over all labels with EQ in request
-	// 2. check inverted index for which series id have these exact labels/values
-	// 3. do set intersection on each step
+	// 1. go over all labels with EQ in request +
+	// 2. check inverted index for which series id have these exact labels/values +
+	// 3. do set intersection on each step +
 	// 4. check for NEQ
 
 	return timeSeries, nil
+}
+
+// FindIntersection returns a slice of common elements that are both
+// in a and b slices.
+func FindIntersection[T comparable](a, b []T) []T {
+	if len(a) > len(b) {
+		return FindIntersection(b, a)
+	}
+
+	result := make([]T, 0)
+
+	// Build a map from the longer slice so we
+	// can check which elements are in A and B slices
+	mappingA := make(map[T]struct{})
+	for _, el := range a {
+		mappingA[el] = struct{}{}
+	}
+
+	// Traverse each element in the shortest slice and
+	// check wether it contains in A mapping
+	for _, el := range b {
+		_, ok := mappingA[el]
+		if ok {
+			// Add common element to the result
+			result = append(result, el)
+		}
+	}
+
+	return result
 }
