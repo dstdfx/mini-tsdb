@@ -118,11 +118,17 @@ func (s *InMemoryEfficient) Read(
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Find values that match with all given lables
+	neqLabels := make([]domain.LabelMatcher, 0)
+
+	// Find values that match with all EQ labels
 	seriesIDs := make([]SeriesID, 0)
 	for _, l := range labelMatchers {
 		// Skip non EQ types
 		if l.Type != domain.EQ {
+			// TODO: fix me when regexp type is supported
+			// Collect all NEQ labels for further filtering
+			neqLabels = append(neqLabels, l)
+
 			continue
 		}
 
@@ -153,11 +159,26 @@ func (s *InMemoryEfficient) Read(
 		}
 	}
 
-	// Collect labels and samples for matching ids
+	// Filter ids by remaining NEQ labels and
+	// collect matching time series
 	for _, id := range seriesIDs {
+		// Check if we need to skip current id
+		var skip bool
+		for _, l := range neqLabels {
+			if v, ok := s.labelsByID[id][LableName(l.Name)]; ok && v == LabelValue(l.Value) {
+				skip = true
+
+				break
+			}
+		}
+		if skip {
+			// Skip current id as NEQ label mismatched
+			continue
+		}
+
+		// Collect time series
 		ts := domain.TimeSeries{}
 		ts.Samples = s.series[id]
-
 		for k, v := range s.labelsByID[id] {
 			ts.Labels = append(ts.Labels, domain.Label{
 				Name:  string(k),
@@ -172,7 +193,7 @@ func (s *InMemoryEfficient) Read(
 	// 1. go over all labels with EQ in request +
 	// 2. check inverted index for which series id have these exact labels/values +
 	// 3. do set intersection on each step +
-	// 4. check for NEQ
+	// 4. check for NEQ +
 
 	return timeSeries, nil
 }

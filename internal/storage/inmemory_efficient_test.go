@@ -163,7 +163,7 @@ func TestInMemoryEfficient_Write_Read(t *testing.T) {
 			Value: "jobs",
 		},
 		{
-			Type:  domain.EQ,
+			Type:  domain.NEQ,
 			Name:  "test",
 			Value: "123",
 		},
