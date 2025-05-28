@@ -184,8 +184,6 @@ func handleRead(log *slog.Logger, s Storage) http.HandlerFunc {
 				log.Warn("got read hints in the read request, ignoring", slog.Any("hints", q.Hints))
 			}
 
-			// TODO: go over all matchers where type "="
-
 			// q.Matchers[0]
 			_ = q
 

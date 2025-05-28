@@ -9,7 +9,7 @@ import (
 	"github.com/dstdfx/mini-tsdb/internal/domain"
 )
 
-func TestInMemoryEfficient_BuildHash(t *testing.T) {
+func TestInMemory_BuildHash(t *testing.T) {
 	s := NewInMemoryEfficient()
 
 	labels := []domain.Label{
@@ -32,7 +32,7 @@ func TestInMemoryEfficient_BuildHash(t *testing.T) {
 	}
 
 	got := s.buildLabelsHash(labels)
-	expected := LabelsHash(uint64(8341061335512845696))
+	expected := labelsHash(uint64(8341061335512845696))
 
 	if got != expected {
 		t.Errorf("expected '%v' but got '%v'", expected, got)
@@ -95,7 +95,7 @@ func TestFindIntersection(t *testing.T) {
 	}
 }
 
-func TestInMemoryEfficient_Write_Read(t *testing.T) {
+func TestInMemory_Write_Read(t *testing.T) {
 	s := NewInMemoryEfficient()
 
 	labels1 := []domain.Label{
@@ -150,6 +150,10 @@ func TestInMemoryEfficient_Write_Read(t *testing.T) {
 			Timestamp: tNow + 2,
 			Value:     125,
 		},
+		{
+			Timestamp: tNow + 3,
+			Value:     126,
+		},
 	}
 
 	for _, v := range [][]domain.Label{labels1, labels2, labels3} {
@@ -169,7 +173,7 @@ func TestInMemoryEfficient_Write_Read(t *testing.T) {
 		},
 	}
 
-	got, err := s.Read(0, 0, requestLabels)
+	got, err := s.Read(tNow, tNow+2, requestLabels)
 	if err != nil {
 		t.Errorf("unexpected error: '%v'", err)
 	}
@@ -190,4 +194,32 @@ func TestInMemoryEfficient_Write_Read(t *testing.T) {
 	// if !reflect.DeepEqual(got, samples) {
 	// 	t.Errorf("expected values to be equal: '%v' to '%v'", got, samples)
 	// }
+}
+
+// TODO: add tests and basic benchmarks to verify this approach
+
+func TestFilterSamples(t *testing.T) {
+	samples := []domain.Sample{
+		{
+			Timestamp: 1,
+		},
+		{
+			Timestamp: 1,
+		},
+		{
+			Timestamp: 2,
+		},
+		{
+			Timestamp: 3,
+		},
+		{
+			Timestamp: 5,
+		},
+		{
+			Timestamp: 8,
+		},
+	}
+
+	got := filterSamples(samples, 1, 5)
+	fmt.Println(got)
 }
