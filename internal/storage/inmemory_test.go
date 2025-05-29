@@ -179,7 +179,6 @@ func TestInMemory_Write_Read(t *testing.T) {
 	}
 
 	// TODO: refactor tests
-
 	fmt.Println("matching ts: ")
 	for _, v := range got {
 		fmt.Println(v)
@@ -199,27 +198,183 @@ func TestInMemory_Write_Read(t *testing.T) {
 // TODO: add tests and basic benchmarks to verify this approach
 
 func TestFilterSamples(t *testing.T) {
-	samples := []domain.Sample{
+	tableTest := []struct {
+		msg      string
+		from, to int64
+		samples  []domain.Sample
+		expected []domain.Sample
+	}{
 		{
-			Timestamp: 1,
+			msg:      "empty",
+			from:     1,
+			to:       5,
+			samples:  []domain.Sample{},
+			expected: []domain.Sample{},
 		},
 		{
-			Timestamp: 1,
+			msg:  "normal case",
+			from: 2,
+			to:   5,
+			samples: []domain.Sample{
+				{
+					Timestamp: 1,
+				},
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 3,
+				},
+				{
+					Timestamp: 5,
+				},
+				{
+					Timestamp: 8,
+				},
+			},
+			expected: []domain.Sample{
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 3,
+				},
+				{
+					Timestamp: 5,
+				},
+			},
 		},
 		{
-			Timestamp: 2,
+			msg:  "all samples",
+			from: 1,
+			to:   10,
+			samples: []domain.Sample{
+				{
+					Timestamp: 1,
+				},
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 3,
+				},
+				{
+					Timestamp: 5,
+				},
+				{
+					Timestamp: 8,
+				},
+			},
+			expected: []domain.Sample{
+				{
+					Timestamp: 1,
+				},
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 3,
+				},
+				{
+					Timestamp: 5,
+				},
+				{
+					Timestamp: 8,
+				},
+			},
 		},
 		{
-			Timestamp: 3,
+			msg:  "no samples in the range, right side",
+			from: 9,
+			to:   15,
+			samples: []domain.Sample{
+				{
+					Timestamp: 1,
+				},
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 3,
+				},
+				{
+					Timestamp: 5,
+				},
+				{
+					Timestamp: 8,
+				},
+			},
+			expected: []domain.Sample{},
 		},
 		{
-			Timestamp: 5,
-		},
-		{
-			Timestamp: 8,
+			msg:  "no samples in the range, left side",
+			from: -3,
+			to:   0,
+			samples: []domain.Sample{
+				{
+					Timestamp: 1,
+				},
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 2,
+				},
+				{
+					Timestamp: 3,
+				},
+				{
+					Timestamp: 5,
+				},
+				{
+					Timestamp: 8,
+				},
+			},
+			expected: []domain.Sample{},
 		},
 	}
 
-	got := filterSamples(samples, 1, 5)
-	fmt.Println(got)
+	for _, test := range tableTest {
+		t.Run(test.msg, func(t *testing.T) {
+			got := filterSamples(test.expected, test.from, test.to)
+			if !reflect.DeepEqual(test.expected, got) {
+				t.Errorf("filterSamples: got '%v' but expected '%v'", got, test.expected)
+			}
+		})
+	}
+}
+
+func BenchmarkFilterSamples(b *testing.B) {
+	const total = 1_000_000
+	samples := make([]domain.Sample, total)
+	for i := 0; i < total; i++ {
+		samples[i] = domain.Sample{
+			Timestamp: int64(i * 1000),
+			Value:     float64(i),
+		}
+	}
+
+	from := int64(300_000_000)
+	to := int64(600_000_000)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = filterSamples(samples, from, to)
+	}
 }

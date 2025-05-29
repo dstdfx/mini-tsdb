@@ -185,13 +185,6 @@ func (s *InMemory) Read(
 		timeSeries = append(timeSeries, ts)
 	}
 
-	// TODO:
-	// 1. go over all labels with EQ in request +
-	// 2. check inverted index for which series id have these exact labels/values +
-	// 3. do set intersection on each step +
-	// 4. check for NEQ +
-	// 5. filter by FROM/TO +
-
 	return timeSeries, nil
 }
 
