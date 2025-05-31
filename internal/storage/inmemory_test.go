@@ -1,12 +1,12 @@
 package storage
 
 import (
-	"fmt"
-	"reflect"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/dstdfx/mini-tsdb/internal/domain"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestInMemory_BuildHash(t *testing.T) {
@@ -33,11 +33,7 @@ func TestInMemory_BuildHash(t *testing.T) {
 
 	got := s.buildLabelsHash(labels)
 	expected := labelsHash(uint64(8341061335512845696))
-
-	if got != expected {
-		t.Errorf("expected '%v' but got '%v'", expected, got)
-		t.Fail()
-	}
+	assert.Equal(t, expected, got)
 }
 
 func TestFindIntersection(t *testing.T) {
@@ -87,56 +83,25 @@ func TestFindIntersection(t *testing.T) {
 
 	for _, test := range tableTest {
 		t.Run(test.msg, func(t *testing.T) {
-			got := FindIntersection(test.a, test.b)
-			if !reflect.DeepEqual(got, test.expected) {
-				t.Errorf("got '%v' but expected '%v'", got, test.expected)
-			}
+			assert.Equal(t, test.expected, FindIntersection(test.a, test.b))
 		})
 	}
 }
 
 func TestInMemory_Write_Read(t *testing.T) {
-	s := NewInMemoryEfficient()
+	type (
+		expected struct {
+			timeSeries []domain.TimeSeries
+			err        error
+		}
+		readOpts struct {
+			from, to      int64
+			labelsMatcher []domain.LabelMatcher
+		}
+	)
 
-	labels1 := []domain.Label{
-		{
-			Name:  "test",
-			Value: "123",
-		},
-		{
-			Name:  "namespace",
-			Value: "jobs",
-		},
-		{
-			Name:  "state",
-			Value: "stable",
-		},
-		{
-			Name:  "abc",
-			Value: "hello",
-		},
-	}
-
-	labels2 := []domain.Label{
-		{
-			Name:  "namespace",
-			Value: "jobs",
-		},
-	}
-
-	labels3 := []domain.Label{
-		{
-			Name:  "namespace",
-			Value: "jobs",
-		},
-		{
-			Name:  "test",
-			Value: "123",
-		},
-	}
-
+	// Fixtures
 	tNow := time.Now().Unix()
-
 	samples := []domain.Sample{
 		{
 			Timestamp: tNow,
@@ -156,46 +121,265 @@ func TestInMemory_Write_Read(t *testing.T) {
 		},
 	}
 
-	for _, v := range [][]domain.Label{labels1, labels2, labels3} {
-		s.Write(v, samples)
-	}
-
-	requestLabels := []domain.LabelMatcher{
+	tableTest := []struct {
+		msg      string
+		writes   []domain.TimeSeries
+		reads    []readOpts
+		expected []expected
+	}{
 		{
-			Type:  domain.EQ,
-			Name:  "namespace",
-			Value: "jobs",
+			msg:    "no data",
+			writes: []domain.TimeSeries{},
+			reads: []readOpts{
+				{
+					from:          1,
+					to:            10,
+					labelsMatcher: []domain.LabelMatcher{},
+				},
+			},
+			expected: []expected{
+				{},
+			},
 		},
 		{
-			Type:  domain.NEQ,
-			Name:  "test",
-			Value: "123",
+			msg: "writes/reads",
+			writes: []domain.TimeSeries{
+				{
+					Labels: []domain.Label{
+						{
+							Name:  "test",
+							Value: "123",
+						},
+						{
+							Name:  "namespace",
+							Value: "jobs",
+						},
+						{
+							Name:  "state",
+							Value: "stable",
+						},
+						{
+							Name:  "abc",
+							Value: "hello",
+						},
+					},
+					Samples: samples,
+				},
+				{
+					Labels: []domain.Label{
+						{
+							Name:  "namespace",
+							Value: "jobs",
+						},
+					},
+					Samples: samples,
+				},
+				{
+					Labels: []domain.Label{
+						{
+							Name:  "namespace",
+							Value: "jobs",
+						},
+						{
+							Name:  "test",
+							Value: "123",
+						},
+					},
+					Samples: samples,
+				},
+			},
+			reads: []readOpts{
+				{
+					from: tNow,
+					to:   tNow + 2,
+					labelsMatcher: []domain.LabelMatcher{
+						{
+							Type:  domain.EQ,
+							Name:  "namespace",
+							Value: "jobs",
+						},
+						{
+							Type:  domain.EQ,
+							Name:  "test",
+							Value: "123",
+						},
+					},
+				},
+				{
+					from: tNow,
+					to:   tNow + 2,
+					labelsMatcher: []domain.LabelMatcher{
+						{
+							Type:  domain.EQ,
+							Name:  "namespace",
+							Value: "jobs",
+						},
+						{
+							Type:  domain.NEQ,
+							Name:  "test",
+							Value: "123",
+						},
+					},
+				},
+				// Samples are out of range
+				{
+					from: tNow + 10,
+					to:   tNow + 15,
+					labelsMatcher: []domain.LabelMatcher{
+						{
+							Type:  domain.EQ,
+							Name:  "namespace",
+							Value: "jobs",
+						},
+						{
+							Type:  domain.NEQ,
+							Name:  "test",
+							Value: "123",
+						},
+					},
+				},
+			},
+			expected: []expected{
+				{
+					timeSeries: []domain.TimeSeries{
+						{
+							Labels: []domain.Label{
+								{
+									Name:  "test",
+									Value: "123",
+								},
+								{
+									Name:  "namespace",
+									Value: "jobs",
+								},
+								{
+									Name:  "state",
+									Value: "stable",
+								},
+								{
+									Name:  "abc",
+									Value: "hello",
+								},
+							},
+							Samples: []domain.Sample{
+								{
+									Timestamp: tNow,
+									Value:     123,
+								},
+								{
+									Timestamp: tNow + 1,
+									Value:     124,
+								},
+								{
+									Timestamp: tNow + 2,
+									Value:     125,
+								},
+							},
+						},
+						{
+							Labels: []domain.Label{
+								{
+									Name:  "namespace",
+									Value: "jobs",
+								},
+								{
+									Name:  "test",
+									Value: "123",
+								},
+							},
+							Samples: []domain.Sample{
+								{
+									Timestamp: tNow,
+									Value:     123,
+								},
+								{
+									Timestamp: tNow + 1,
+									Value:     124,
+								},
+								{
+									Timestamp: tNow + 2,
+									Value:     125,
+								},
+							},
+						},
+					},
+				},
+				{
+					timeSeries: []domain.TimeSeries{
+						{
+							Labels: []domain.Label{
+								{
+									Name:  "namespace",
+									Value: "jobs",
+								},
+							},
+							Samples: []domain.Sample{
+								{
+									Timestamp: tNow,
+									Value:     123,
+								},
+								{
+									Timestamp: tNow + 1,
+									Value:     124,
+								},
+								{
+									Timestamp: tNow + 2,
+									Value:     125,
+								},
+							},
+						},
+					},
+				},
+				{
+					timeSeries: []domain.TimeSeries{
+						{
+							Labels: []domain.Label{
+								{
+									Name:  "namespace",
+									Value: "jobs",
+								},
+							},
+							Samples: []domain.Sample{},
+						},
+					},
+				},
+			},
 		},
 	}
 
-	got, err := s.Read(tNow, tNow+2, requestLabels)
-	if err != nil {
-		t.Errorf("unexpected error: '%v'", err)
+	for _, test := range tableTest {
+		t.Run(test.msg, func(t *testing.T) {
+			s := NewInMemoryEfficient()
+
+			// Write data
+			for _, w := range test.writes {
+				if err := s.Write(w.Labels, w.Samples); err != nil {
+					t.Fail()
+				}
+			}
+
+			// Read data
+			for i, r := range test.reads {
+				got, err := s.Read(r.from, r.to, r.labelsMatcher)
+				if test.expected[i].err != nil {
+					assert.True(t, errors.Is(err, test.expected[i].err))
+				} else {
+					// A bit hacky way to assert non-determenistic order in slice-fields
+					if assert.Equal(t, len(test.expected[i].timeSeries), len(got)) {
+						for idx := 0; idx < len(test.expected[i].timeSeries); idx++ {
+							// Assert labels
+							assert.ElementsMatch(t,
+								test.expected[i].timeSeries[idx].Labels, got[idx].Labels)
+							// Assert samples
+							assert.ElementsMatch(t,
+								test.expected[i].timeSeries[idx].Samples, got[idx].Samples)
+						}
+					}
+				}
+			}
+		})
 	}
-
-	// TODO: refactor tests
-	fmt.Println("matching ts: ")
-	for _, v := range got {
-		fmt.Println(v)
-	}
-
-	// got, err := s.Read(labels)
-	// if err != nil {
-	// 	t.Errorf("unexpected error: '%v'", err)
-	// 	t.Fail()
-	// }
-
-	// if !reflect.DeepEqual(got, samples) {
-	// 	t.Errorf("expected values to be equal: '%v' to '%v'", got, samples)
-	// }
 }
-
-// TODO: add tests and basic benchmarks to verify this approach
 
 func TestFilterSamples(t *testing.T) {
 	tableTest := []struct {
@@ -352,9 +536,7 @@ func TestFilterSamples(t *testing.T) {
 	for _, test := range tableTest {
 		t.Run(test.msg, func(t *testing.T) {
 			got := filterSamples(test.expected, test.from, test.to)
-			if !reflect.DeepEqual(test.expected, got) {
-				t.Errorf("filterSamples: got '%v' but expected '%v'", got, test.expected)
-			}
+			assert.Equal(t, test.expected, got)
 		})
 	}
 }
