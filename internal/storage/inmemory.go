@@ -25,7 +25,7 @@ type InMemory struct {
 	seriesHash    map[labelsHash]seriesID                 // to check if we already had a sequence of labels before
 }
 
-func NewInMemoryEfficient() *InMemory {
+func NewInMemory() *InMemory {
 	return &InMemory{
 		series:        make(map[seriesID][]domain.Sample),
 		invertedIndex: make(map[lableName]map[labelValue][]seriesID),
@@ -34,12 +34,15 @@ func NewInMemoryEfficient() *InMemory {
 	}
 }
 
-func (s *InMemory) Write(labels []domain.Label, samples []domain.Sample) error {
-	// TODO: return an error on invalid params
-
+// Write method writes a single time series to in-memory storage.
+func (s *InMemory) Write(labels []domain.Label, samples []domain.Sample) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.write(labels, samples)
+}
+
+func (s *InMemory) write(labels []domain.Label, samples []domain.Sample) {
 	currentHash := s.buildLabelsHash(labels)
 
 	// Check if we already had this sequence of labels
@@ -58,7 +61,7 @@ func (s *InMemory) Write(labels []domain.Label, samples []domain.Sample) error {
 
 	if isKnownHash {
 		// Fast path: no need to update inverted index for existing labels sequence
-		return nil
+		return
 	}
 
 	// Slow path: build the inverted index and labels map for a new labels sequence
@@ -81,8 +84,16 @@ func (s *InMemory) Write(labels []domain.Label, samples []domain.Sample) error {
 		}
 		s.labelsByID[existingSeriesID][lableName(l.Name)] = labelValue(l.Value)
 	}
+}
 
-	return nil
+// WriteMultiple writes multiple time series to in-memory storage.
+func (s *InMemory) WriteMultiple(series []domain.TimeSeries) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, ts := range series {
+		s.write(ts.Labels, ts.Samples)
+	}
 }
 
 func (s *InMemory) buildLabelsHash(labels []domain.Label) labelsHash {
@@ -106,10 +117,11 @@ func (s *InMemory) buildLabelsHash(labels []domain.Label) labelsHash {
 	return labelsHash(h.Sum64())
 }
 
+// Read returns time series based on the provided options.
 func (s *InMemory) Read(
 	fromMs,
 	toMs int64,
-	labelMatchers []domain.LabelMatcher) (timeSeries []domain.TimeSeries, err error) {
+	labelMatchers []domain.LabelMatcher) (timeSeries []domain.TimeSeries) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -146,7 +158,7 @@ func (s *InMemory) Read(
 		} else {
 			// Otherwise just find intersection to leave only the
 			// ids that matched
-			seriesIDs = FindIntersection(seriesIDs, ids)
+			seriesIDs = findIntersection(seriesIDs, ids)
 			if len(seriesIDs) == 0 {
 				// No matching values - abort further checking
 				return
@@ -185,14 +197,14 @@ func (s *InMemory) Read(
 		timeSeries = append(timeSeries, ts)
 	}
 
-	return timeSeries, nil
+	return timeSeries
 }
 
-// FindIntersection returns a slice of common elements that are both
+// findIntersection returns a slice of common elements that are both
 // in a and b slices.
-func FindIntersection[T comparable](a, b []T) []T {
+func findIntersection[T comparable](a, b []T) []T {
 	if len(a) > len(b) {
-		return FindIntersection(b, a)
+		return findIntersection(b, a)
 	}
 
 	result := make([]T, 0)

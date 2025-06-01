@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -10,7 +9,7 @@ import (
 )
 
 func TestInMemory_BuildHash(t *testing.T) {
-	s := NewInMemoryEfficient()
+	s := NewInMemory()
 
 	labels := []domain.Label{
 		{
@@ -83,7 +82,7 @@ func TestFindIntersection(t *testing.T) {
 
 	for _, test := range tableTest {
 		t.Run(test.msg, func(t *testing.T) {
-			assert.Equal(t, test.expected, FindIntersection(test.a, test.b))
+			assert.Equal(t, test.expected, findIntersection(test.a, test.b))
 		})
 	}
 }
@@ -92,7 +91,6 @@ func TestInMemory_Write_Read(t *testing.T) {
 	type (
 		expected struct {
 			timeSeries []domain.TimeSeries
-			err        error
 		}
 		readOpts struct {
 			from, to      int64
@@ -349,31 +347,26 @@ func TestInMemory_Write_Read(t *testing.T) {
 
 	for _, test := range tableTest {
 		t.Run(test.msg, func(t *testing.T) {
-			s := NewInMemoryEfficient()
+			s := NewInMemory()
 
 			// Write data
 			for _, w := range test.writes {
-				if err := s.Write(w.Labels, w.Samples); err != nil {
-					t.Fail()
-				}
+				s.Write(w.Labels, w.Samples)
 			}
 
 			// Read data
 			for i, r := range test.reads {
-				got, err := s.Read(r.from, r.to, r.labelsMatcher)
-				if test.expected[i].err != nil {
-					assert.True(t, errors.Is(err, test.expected[i].err))
-				} else {
-					// A bit hacky way to assert non-determenistic order in slice-fields
-					if assert.Equal(t, len(test.expected[i].timeSeries), len(got)) {
-						for idx := 0; idx < len(test.expected[i].timeSeries); idx++ {
-							// Assert labels
-							assert.ElementsMatch(t,
-								test.expected[i].timeSeries[idx].Labels, got[idx].Labels)
-							// Assert samples
-							assert.ElementsMatch(t,
-								test.expected[i].timeSeries[idx].Samples, got[idx].Samples)
-						}
+				got := s.Read(r.from, r.to, r.labelsMatcher)
+
+				// A bit hacky way to assert non-determenistic order in slice-fields
+				if assert.Equal(t, len(test.expected[i].timeSeries), len(got)) {
+					for idx := 0; idx < len(test.expected[i].timeSeries); idx++ {
+						// Assert labels
+						assert.ElementsMatch(t,
+							test.expected[i].timeSeries[idx].Labels, got[idx].Labels)
+						// Assert samples
+						assert.ElementsMatch(t,
+							test.expected[i].timeSeries[idx].Samples, got[idx].Samples)
 					}
 				}
 			}

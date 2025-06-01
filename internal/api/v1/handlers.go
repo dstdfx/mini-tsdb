@@ -57,7 +57,8 @@ func (h *handler) RemoteWrite() http.HandlerFunc {
 			return
 		}
 
-		// Process the request: read the timeseries and write them to storage
+		// Parse time series
+		timeSeries := make([]domain.TimeSeries, 0, len(request.Timeseries))
 		for _, ts := range request.Timeseries {
 			labels := make([]domain.Label, len(ts.Labels))
 			for i, label := range ts.Labels {
@@ -79,12 +80,16 @@ func (h *handler) RemoteWrite() http.HandlerFunc {
 				continue
 			}
 
-			h.log.Info("Writing timeseries to storage",
-				slog.Any("labels", labels),
-				slog.Any("samples", samples))
-
-			h.storage.Write(labels, samples)
+			timeSeries = append(timeSeries, domain.TimeSeries{
+				Labels:  labels,
+				Samples: samples,
+			})
 		}
+
+		// TODO: add WAL append here first
+
+		// Write data to in memory storage
+		h.storage.WriteMultiple(timeSeries)
 
 		w.WriteHeader(http.StatusOK)
 	}
@@ -144,18 +149,7 @@ func (h *handler) RemoteRead() http.HandlerFunc {
 			}
 
 			// Handle query
-			result, err := h.storage.Read(q.StartTimestampMs, q.EndTimestampMs, matchers)
-			if err != nil {
-				h.log.Error("failed to handle read",
-					slog.Any("error", err),
-					slog.Any("matchers", matchers),
-					slog.Int64("from_ms", q.StartTimestampMs),
-					slog.Int64("to_ms", q.EndTimestampMs),
-				)
-				w.WriteHeader(http.StatusInternalServerError)
-
-				return
-			}
+			result := h.storage.Read(q.StartTimestampMs, q.EndTimestampMs, matchers)
 
 			h.log.Debug("got result from storage", slog.Any("result", result))
 

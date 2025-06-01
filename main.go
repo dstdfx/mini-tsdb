@@ -21,7 +21,7 @@ func main() {
 
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 
-	storage := storage.NewInMemoryEfficient()
+	storage := storage.NewInMemory()
 	r := http.NewServeMux()
 
 	api.InitRoutesV1(r, logger, storage)
