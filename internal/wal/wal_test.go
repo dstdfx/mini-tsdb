@@ -1,15 +1,15 @@
 package wal
 
 import (
-	"fmt"
 	"os"
 	"testing"
+	"time"
 
+	"github.com/dstdfx/mini-tsdb/internal/domain"
 	"github.com/stretchr/testify/assert"
 )
 
-// TODO: finish the test
-func TestWal(t *testing.T) {
+func TestWal_listWalFiles(t *testing.T) {
 	walDir, err := os.MkdirTemp(os.TempDir(), "waltest")
 	assert.NoError(t, err)
 
@@ -18,13 +18,13 @@ func TestWal(t *testing.T) {
 	})
 
 	files := []string{
-		"wal_123",
-		"wal_321",
-		"wal_124",
-		"wal_2",
-		"wal_9999",
-		"wal_9991",
-		"adsfasdf_1",
+		"123.wal",
+		"321.wal",
+		"124.wal",
+		"2.wal",
+		"asdfsf.wal",
+		"999ggg.wal",
+		"adsfasdf_1.wal",
 	}
 
 	for _, f := range files {
@@ -38,5 +38,76 @@ func TestWal(t *testing.T) {
 		PartitionsPath: walDir,
 	})
 
-	fmt.Println(w.listWalFiles())
+	expected := []walFile{
+		{
+			name: "2.wal",
+			ts:   2,
+		},
+		{
+			name: "123.wal",
+			ts:   123,
+		},
+		{
+			name: "124.wal",
+			ts:   124,
+		},
+		{
+			name: "321.wal",
+			ts:   321,
+		},
+	}
+
+	got, err := w.listWalFiles()
+	assert.NoError(t, err)
+	assert.Equal(t, expected, got)
+
+}
+
+func TestWal_Append(t *testing.T) {
+	// walDir, err := os.MkdirTemp(".", "waltest")
+	// assert.NoError(t, err)
+
+	// t.Cleanup(func() {
+	// 	assert.NoError(t, os.RemoveAll(walDir))
+	// })
+
+	w := New(nil, Opts{
+		PartitionsPath:     ".",
+		PartitionSizeInSec: 60,
+		TimeNow:            time.Now,
+	})
+
+	err := w.Append(domain.WalEntity{
+		Timestamp: time.Now().Unix(),
+		TimeSeries: []domain.TimeSeries{
+			{
+				Labels: []domain.Label{
+					{
+						Name:  "test2",
+						Value: "qewafsdfasdf",
+					},
+				},
+				Samples: []domain.Sample{
+					{
+						Value:     555,
+						Timestamp: 666,
+					},
+				},
+			},
+		},
+	})
+	assert.NoError(t, err)
+
+	// f, err := os.Open("1749069360.wal")
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// var v domain.WalEntity
+
+	// if err := readEntity(f, &v); err != nil {
+	// 	panic(err)
+	// }
+
+	// fmt.Printf("decoded: %v", v)
 }
