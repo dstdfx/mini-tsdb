@@ -1,6 +1,7 @@
 package wal
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -63,6 +64,7 @@ func TestWal_listWalFiles(t *testing.T) {
 
 }
 
+// TODO: rewrite the test
 func TestWal_Append(t *testing.T) {
 	// walDir, err := os.MkdirTemp(".", "waltest")
 	// assert.NoError(t, err)
@@ -98,16 +100,16 @@ func TestWal_Append(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	// f, err := os.Open("1749069360.wal")
-	// if err != nil {
-	// 	panic(err)
-	// }
+	f, err := os.Open("1749157590.wal")
+	if err != nil {
+		panic(err)
+	}
 
-	// var v domain.WalEntity
+	// Read all records
+	allRecords, err := readNRecords(f, -1)
+	assert.NoError(t, err)
 
-	// if err := readEntity(f, &v); err != nil {
-	// 	panic(err)
-	// }
-
-	// fmt.Printf("decoded: %v", v)
+	for _, r := range allRecords {
+		fmt.Println(r)
+	}
 }

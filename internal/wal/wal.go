@@ -1,8 +1,10 @@
 package wal
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -25,11 +27,12 @@ import (
 const partitionSuffix = ".wal"
 
 type wal struct {
-	log                *slog.Logger
-	partitionSizeInSec int64
-	partitionsPath     string
-	currentFile        *os.File
-	timeFn             func() time.Time
+	log                  *slog.Logger
+	partitionSizeInSec   int64
+	partitionsPath       string
+	currentFileTimestamp int64
+	currentFile          *os.File
+	timeFn               func() time.Time
 }
 
 type Opts struct {
@@ -47,6 +50,12 @@ func New(log *slog.Logger, opts Opts) *wal {
 	}
 }
 
+func (l *wal) Run(ctx context.Context) {
+	<-ctx.Done()
+
+	l.closeCurrentFile()
+}
+
 type walFile struct {
 	name string
 	ts   int64
@@ -61,20 +70,23 @@ func (l *wal) listWalFiles() ([]walFile, error) {
 
 	files := make([]walFile, 0, len(entries))
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), partitionSuffix) {
-			// Get partition timestamp
-			withoutPrefix, _ := strings.CutSuffix(e.Name(), partitionSuffix)
-			ts, err := strconv.ParseInt(withoutPrefix, 10, 64)
-			if err != nil {
-				// Skip invalid files
-				continue
-			}
-
-			files = append(files, walFile{
-				name: e.Name(),
-				ts:   ts,
-			})
+		if e.IsDir() || !strings.HasSuffix(e.Name(), partitionSuffix) {
+			// Skip dirs or not-WAL files
+			continue
 		}
+
+		// Get partition timestamp
+		withoutPrefix, _ := strings.CutSuffix(e.Name(), partitionSuffix)
+		ts, err := strconv.ParseInt(withoutPrefix, 10, 64)
+		if err != nil {
+			// Skip invalid files
+			continue
+		}
+
+		files = append(files, walFile{
+			name: e.Name(),
+			ts:   ts,
+		})
 	}
 
 	sort.Slice(files, func(i, j int) bool {
@@ -84,10 +96,13 @@ func (l *wal) listWalFiles() ([]walFile, error) {
 	return files, nil
 }
 
+// Append persists WAL entry to the disk.
 func (l *wal) Append(entry domain.WalEntity) error {
-	// TODO: write new entity to the current wal file (current minute/hour partition)
-	// do fsync
-	// consider doing fsync every N writes or every N seconds?
+	tNow := l.timeFn().Unix()
+	var (
+		currentFilename string
+		err             error
+	)
 
 	if l.currentFile == nil {
 		files, err := l.listWalFiles()
@@ -95,24 +110,33 @@ func (l *wal) Append(entry domain.WalEntity) error {
 			return fmt.Errorf("failed to list wal files: %w", err)
 		}
 
-		// Check if we have wal files and if can use the latest partition
-		if len(files) > 0 && files[len(files)-1].ts < l.timeFn().Unix() {
-			// TODO:
-			// 1. use the lates file files[len(files)-1] as they are already sorted by timestamp
-			// 2. check if we need to create a new partition file:
-			// (latest partitition + partition size > time.Now())
+		// Check if we have latest wal partition
+		if len(files) > 0 {
+			currentFilename = files[len(files)-1].name
+			l.currentFileTimestamp = files[len(files)-1].ts
 
-			l.currentFile, err = l.openFile(files[len(files)-1].name)
-			if err != nil {
-				// TODO: write it to a temporary file anyway or keep a local state and then flush it?
-				return fmt.Errorf("failed to open a wal file: %w", err)
+			// Open latest wal partition if it's still active
+			if files[len(files)-1].ts+l.partitionSizeInSec < tNow {
+				l.currentFile, err = l.openFile(currentFilename)
+				if err != nil {
+					return fmt.Errorf("failed to create new wal partition: %w", err)
+				}
 			}
-		} else {
-			// Create new partiton
-			l.currentFile, err = l.openFile(strconv.FormatInt(l.getNextPartitionTs(), 10) + partitionSuffix)
-			if err != nil {
-				return fmt.Errorf("failed to create new wal partition: %w", err)
-			}
+		}
+	}
+
+	// Check if we should create a new wal partition
+	if l.currentFileTimestamp+l.partitionSizeInSec >= tNow || l.currentFileTimestamp == 0 {
+		// Build next wal file name
+		l.currentFileTimestamp = l.getNextPartitionTs()
+		currentFilename = strconv.FormatInt(l.currentFileTimestamp, 10) + partitionSuffix
+
+		// Close previous wal file
+		l.closeCurrentFile()
+
+		l.currentFile, err = l.openFile(currentFilename)
+		if err != nil {
+			return fmt.Errorf("failed to create new wal partition: %w", err)
 		}
 	}
 
@@ -120,7 +144,18 @@ func (l *wal) Append(entry domain.WalEntity) error {
 		return fmt.Errorf("failed to write entry: %w", err)
 	}
 
+	// TODO: consider doing fsync every N writes or every N seconds
 	return l.currentFile.Sync()
+}
+
+func (l *wal) closeCurrentFile() {
+	// Close previous wal file
+	if l.currentFile != nil {
+		err := l.currentFile.Close()
+		if err != nil {
+			l.log.Error("failed to close wal file", slog.Any("err", err))
+		}
+	}
 }
 
 func (l *wal) getNextPartitionTs() int64 {
@@ -144,7 +179,7 @@ func (l *wal) Replay() ([]domain.WalEntity, error) {
 	return nil, nil
 }
 
-func writeEntity(w io.Writer, data any) error {
+func writeEntity(w io.Writer, data domain.WalEntity) error {
 	// for the sake of simplicity encode to json for now
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
@@ -163,16 +198,33 @@ func writeEntity(w io.Writer, data any) error {
 	return err
 }
 
-func readEntity(r io.Reader, v any) error {
-	var length uint32
-	if err := binary.Read(r, binary.LittleEndian, &length); err != nil {
-		return err
+func readNRecords(r io.Reader, n int) ([]domain.WalEntity, error) {
+	var result []domain.WalEntity
+
+	for i := 0; n <= 0 || i < n; i++ {
+		var length uint32
+		if err := binary.Read(r, binary.LittleEndian, &length); err != nil {
+			if errors.Is(err, io.EOF) {
+				break // reached end
+			}
+			return nil, fmt.Errorf("read length: %w", err)
+		}
+
+		buf := make([]byte, length)
+
+		if _, err := io.ReadFull(r, buf); err != nil {
+			return nil, fmt.Errorf("read data: %w", err)
+		}
+
+		var record domain.WalEntity
+		if err := json.Unmarshal(buf, &record); err != nil {
+			return nil, fmt.Errorf("decode json: %w", err)
+		}
+
+		result = append(result, record)
 	}
 
-	buf := make([]byte, length)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return err
-	}
-
-	return json.Unmarshal(buf, v)
+	return result, nil
 }
+
+// TODO: add a separate wal reader
