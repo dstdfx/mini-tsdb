@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dstdfx/mini-tsdb/internal/domain"
@@ -33,6 +34,7 @@ type wal struct {
 	currentFileTimestamp int64
 	currentFile          *os.File
 	timeFn               func() time.Time
+	mutex                sync.RWMutex
 }
 
 type Opts struct {
@@ -98,6 +100,9 @@ func (l *wal) listWalFiles() ([]walFile, error) {
 
 // Append persists WAL entry to the disk.
 func (l *wal) Append(entry domain.WalEntity) error {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
 	tNow := l.timeFn().Unix()
 	var (
 		currentFilename string
@@ -117,7 +122,7 @@ func (l *wal) Append(entry domain.WalEntity) error {
 
 			// Open latest wal partition if it's still active
 			if files[len(files)-1].ts+l.partitionSizeInSec < tNow {
-				l.currentFile, err = l.openFile(currentFilename)
+				l.currentFile, err = l.openFile(currentFilename, os.O_CREATE|os.O_WRONLY|os.O_APPEND)
 				if err != nil {
 					return fmt.Errorf("failed to create new wal partition: %w", err)
 				}
@@ -134,7 +139,7 @@ func (l *wal) Append(entry domain.WalEntity) error {
 		// Close previous wal file
 		l.closeCurrentFile()
 
-		l.currentFile, err = l.openFile(currentFilename)
+		l.currentFile, err = l.openFile(currentFilename, os.O_CREATE|os.O_WRONLY|os.O_APPEND)
 		if err != nil {
 			return fmt.Errorf("failed to create new wal partition: %w", err)
 		}
@@ -164,8 +169,8 @@ func (l *wal) getNextPartitionTs() int64 {
 		Add(time.Duration(l.partitionSizeInSec) * time.Second).Unix()
 }
 
-func (l *wal) openFile(filename string) (*os.File, error) {
-	f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+func (l *wal) openFile(filename string, mode int) (*os.File, error) {
+	f, err := os.OpenFile(l.partitionsPath+"/"+filename, mode, 0644)
 	if err != nil {
 		return nil, err
 	}
@@ -174,9 +179,29 @@ func (l *wal) openFile(filename string) (*os.File, error) {
 }
 
 func (l *wal) Replay() ([]domain.WalEntity, error) {
-	// TODO: get files for the last N minutes/hours and replay them so inmemory storage
-	// has all needed data
-	return nil, nil
+	l.mutex.RLock()
+	defer l.mutex.RUnlock()
+
+	// TODO: for now read all available files
+	files, err := l.listWalFiles()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list wal files: %w", err)
+	}
+
+	// TODO: read files in parallel
+	result := make([]domain.WalEntity, 0)
+	for i := 0; i < len(files); i++ {
+		entries, err := l.readWalFile(files[i].name)
+		if err != nil {
+			l.log.Error("failed to read wal file",
+				slog.String("file", files[i].name),
+				slog.Any("error", err))
+		} else {
+			result = append(result, entries...)
+		}
+	}
+
+	return result, nil
 }
 
 func writeEntity(w io.Writer, data domain.WalEntity) error {
@@ -196,6 +221,16 @@ func writeEntity(w io.Writer, data domain.WalEntity) error {
 	_, err = w.Write(jsonBytes)
 
 	return err
+}
+
+func (l *wal) readWalFile(filename string) ([]domain.WalEntity, error) {
+	f, err := l.openFile(filename, os.O_RDONLY)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	return readNRecords(f, -1)
 }
 
 func readNRecords(r io.Reader, n int) ([]domain.WalEntity, error) {
@@ -226,5 +261,3 @@ func readNRecords(r io.Reader, n int) ([]domain.WalEntity, error) {
 
 	return result, nil
 }
-
-// TODO: add a separate wal reader

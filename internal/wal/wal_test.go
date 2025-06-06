@@ -1,7 +1,7 @@
 package wal
 
 import (
-	"fmt"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -64,52 +64,133 @@ func TestWal_listWalFiles(t *testing.T) {
 
 }
 
-// TODO: rewrite the test
-func TestWal_Append(t *testing.T) {
-	// walDir, err := os.MkdirTemp(".", "waltest")
-	// assert.NoError(t, err)
+func TestWal(t *testing.T) {
+	walDir, err := os.MkdirTemp(os.TempDir(), "waltest")
+	assert.NoError(t, err)
 
-	// t.Cleanup(func() {
-	// 	assert.NoError(t, os.RemoveAll(walDir))
-	// })
+	t.Cleanup(func() {
+		assert.NoError(t, os.RemoveAll(walDir))
+	})
 
-	w := New(nil, Opts{
-		PartitionsPath:     ".",
-		PartitionSizeInSec: 60,
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	w := New(log, Opts{
+		PartitionsPath:     walDir,
+		PartitionSizeInSec: 2, // every 2 seconds - new wal partition
 		TimeNow:            time.Now,
 	})
 
-	err := w.Append(domain.WalEntity{
-		Timestamp: time.Now().Unix(),
-		TimeSeries: []domain.TimeSeries{
-			{
-				Labels: []domain.Label{
-					{
-						Name:  "test2",
-						Value: "qewafsdfasdf",
+	expectedTimeSeries := []domain.WalEntity{
+		domain.WalEntity{
+			Timestamp: time.Now().Unix(),
+			TimeSeries: []domain.TimeSeries{
+				{
+					Labels: []domain.Label{
+						{
+							Name:  "abc",
+							Value: "value",
+						},
 					},
-				},
-				Samples: []domain.Sample{
-					{
-						Value:     555,
-						Timestamp: 666,
+					Samples: []domain.Sample{
+						{
+							Value:     132,
+							Timestamp: 321,
+						},
+						{
+							Value:     134,
+							Timestamp: 322,
+						},
 					},
 				},
 			},
 		},
-	})
-	assert.NoError(t, err)
-
-	f, err := os.Open("1749157590.wal")
-	if err != nil {
-		panic(err)
+		domain.WalEntity{
+			Timestamp: time.Now().Unix(),
+			TimeSeries: []domain.TimeSeries{
+				{
+					Labels: []domain.Label{
+						{
+							Name:  "abc2",
+							Value: "value2",
+						},
+					},
+					Samples: []domain.Sample{
+						{
+							Value:     133,
+							Timestamp: 323,
+						},
+						{
+							Value:     135,
+							Timestamp: 326,
+						},
+					},
+				},
+			},
+		},
+		domain.WalEntity{
+			Timestamp: time.Now().Unix(),
+			TimeSeries: []domain.TimeSeries{
+				{
+					Labels: []domain.Label{
+						{
+							Name:  "abc3",
+							Value: "value3",
+						},
+					},
+					Samples: []domain.Sample{
+						{
+							Value:     134,
+							Timestamp: 325,
+						},
+						{
+							Value:     136,
+							Timestamp: 327,
+						},
+					},
+				},
+			},
+		},
+		domain.WalEntity{
+			Timestamp: time.Now().Unix(),
+			TimeSeries: []domain.TimeSeries{
+				{
+					Labels: []domain.Label{
+						{
+							Name:  "abc4",
+							Value: "value4",
+						},
+					},
+					Samples: []domain.Sample{
+						{
+							Value:     135,
+							Timestamp: 326,
+						},
+						{
+							Value:     137,
+							Timestamp: 328,
+						},
+					},
+				},
+			},
+		},
 	}
 
-	// Read all records
-	allRecords, err := readNRecords(f, -1)
-	assert.NoError(t, err)
+	// Append WAL entries
+	for i, s := range expectedTimeSeries {
+		assert.NoError(t, w.Append(s))
 
-	for _, r := range allRecords {
-		fmt.Println(r)
+		if i%2 == 0 {
+			time.Sleep(2 * time.Second)
+		}
 	}
+
+	// 3 wal partitions are expected
+	files, err := w.listWalFiles()
+	assert.NoError(t, err)
+	assert.Len(t, files, 3)
+
+	// Get data to replay
+	walEntries, err := w.Replay()
+	assert.NoError(t, err)
+	assert.Equal(t, expectedTimeSeries, walEntries)
 }
