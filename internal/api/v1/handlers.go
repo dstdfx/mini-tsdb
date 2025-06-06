@@ -4,6 +4,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/dstdfx/mini-tsdb/internal/domain"
 	"github.com/gogo/protobuf/proto"
@@ -14,12 +15,14 @@ import (
 type handler struct {
 	log     *slog.Logger
 	storage domain.Storage
+	wal     domain.Wal
 }
 
-func NewHandler(log *slog.Logger, s domain.Storage) *handler {
+func NewHandler(log *slog.Logger, s domain.Storage, w domain.Wal) *handler {
 	return &handler{
 		log:     log,
 		storage: s,
+		wal:     w,
 	}
 }
 
@@ -86,7 +89,17 @@ func (h *handler) RemoteWrite() http.HandlerFunc {
 			})
 		}
 
-		// TODO: add WAL append here first
+		// Write data to WAL first
+		err = h.wal.Append(domain.WalEntity{
+			Timestamp:  time.Now().Unix(),
+			TimeSeries: timeSeries,
+		})
+		if err != nil {
+			h.log.Error("failed to append data to wal", slog.Any("error", err))
+			w.WriteHeader(http.StatusInternalServerError)
+
+			return
+		}
 
 		// Write data to in memory storage
 		h.storage.WriteMultiple(timeSeries)

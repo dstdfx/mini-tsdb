@@ -12,6 +12,7 @@ import (
 
 	"github.com/dstdfx/mini-tsdb/internal/api"
 	"github.com/dstdfx/mini-tsdb/internal/storage"
+	"github.com/dstdfx/mini-tsdb/internal/wal"
 )
 
 func main() {
@@ -22,9 +23,25 @@ func main() {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 
 	storage := storage.NewInMemory()
+	w := wal.New(logger, wal.Opts{
+		PartitionSizeInSec: 30,
+		PartitionsPath:     "waldata",
+		TimeNow:            time.Now,
+	})
+
+	// Init storage state
+	logger.Info("init state from WAL")
+	entities, err := w.Replay()
+	if err != nil {
+		panic(err)
+	}
+	for _, e := range entities {
+		storage.WriteMultiple(e.TimeSeries)
+	}
+
 	r := http.NewServeMux()
 
-	api.InitRoutesV1(r, logger, storage)
+	api.InitRoutesV1(r, logger, storage, w)
 
 	baseCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()

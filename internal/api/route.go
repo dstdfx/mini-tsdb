@@ -9,8 +9,8 @@ import (
 )
 
 // InitRoutesV1 initializes HTTP routes for v1 API.
-func InitRoutesV1(r *http.ServeMux, log *slog.Logger, s domain.Storage) {
-	h := v1.NewHandler(log, s)
+func InitRoutesV1(r *http.ServeMux, log *slog.Logger, s domain.Storage, w domain.Wal) {
+	h := v1.NewHandler(log, s, w)
 	r.Handle("/api/v1/write", h.RemoteWrite())
 	r.Handle("/api/v1/read", h.RemoteRead())
 }
