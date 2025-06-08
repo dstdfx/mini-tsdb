@@ -190,11 +190,11 @@ func (l *wal) Replay() ([]domain.WalEntity, error) {
 
 	// TODO: read files in parallel
 	result := make([]domain.WalEntity, 0)
-	for i := 0; i < len(files); i++ {
-		entries, err := l.readWalFile(files[i].name)
+	for _, file := range files {
+		entries, err := l.readWalFile(file.name)
 		if err != nil {
 			l.log.Error("failed to read wal file",
-				slog.String("file", files[i].name),
+				slog.String("file", file.name),
 				slog.Any("error", err))
 		} else {
 			result = append(result, entries...)
