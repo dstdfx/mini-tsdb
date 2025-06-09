@@ -1,12 +1,11 @@
 package storage
 
 import (
+	"hash/fnv"
 	"sort"
 	"sync"
 
 	"github.com/dstdfx/mini-tsdb/internal/domain"
-
-	"hash/fnv"
 )
 
 type (
