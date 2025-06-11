@@ -22,9 +22,6 @@ import (
 // 1. run replay that will load N latest partitions so we can apply them in storage
 // 2. we need to know what was the last wal file -> check wal directory, get latest one
 
-// TODO: append
-// 1. writes data to current wal file + fsync
-
 const partitionSuffix = ".wal"
 
 type wal struct {
