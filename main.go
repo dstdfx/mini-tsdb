@@ -10,22 +10,37 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/caarlos0/env/v11"
 	"github.com/dstdfx/mini-tsdb/internal/api"
 	"github.com/dstdfx/mini-tsdb/internal/storage"
 	"github.com/dstdfx/mini-tsdb/internal/wal"
 )
+
+type config struct {
+	PartitionSizeInSec int64  `env:"PARTITION_SIZE_IN_SEC" envDefault:"30"`
+	WALPartitionsPath  string `env:"WAL_PARTITIONS_PATH" envDefault:"waldata"`
+	Addr               string `env:"PORT" envDefault:":9201"`
+}
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
 
+	// Parse app configuration
+	var cfg config
+	err := env.Parse(&cfg)
+	if err != nil {
+		logger.Error("failed to parse app config", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 
 	storage := storage.NewInMemory()
 	w := wal.New(logger, wal.Opts{
-		PartitionSizeInSec: 30,
-		PartitionsPath:     "waldata",
+		PartitionSizeInSec: cfg.PartitionSizeInSec,
+		PartitionsPath:     cfg.WALPartitionsPath,
 		TimeNow:            time.Now,
 	})
 
@@ -47,7 +62,7 @@ func main() {
 	defer cancel()
 
 	srv := &http.Server{
-		Addr:    ":9201",
+		Addr:    cfg.Addr,
 		Handler: r,
 		BaseContext: func(net.Listener) context.Context {
 			return baseCtx
