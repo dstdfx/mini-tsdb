@@ -1,6 +1,6 @@
 # mini-tsdb
 
-**mini-tsdb** is a minimal time-series database written in Go with support for Prometheus `remote_write` and `remote_read` APIs. This project is designed as an educational playground to explore how time-series storage engines work under the hood.
+**mini-tsdb** is a minimal time-series database written in Go with support for Prometheus [`remote_write`](https://prometheus.io/docs/specs/prw/remote_write_spec/) and [`remote_read`](https://prometheus.io/docs/prometheus/latest/querying/remote_read_api/) APIs. This project is designed as an educational playground to explore how time-series storage engines work under the hood.
 
 ## Features
 - **Remote Write**: Accepts time-series data from Prometheus
@@ -10,8 +10,8 @@
 - **Replay on Startup**: WAL is replayed to restore in-memory state
 
 ## TODO
-- [X] Implement `remote_write` API
-- [X] Implement `remote_read` API
+- [X] Implement [`remote_write`](https://prometheus.io/docs/specs/prw/remote_write_spec/) API
+- [X] Implement [`remote_read`](https://prometheus.io/docs/prometheus/latest/querying/remote_read_api/) API
 - [X] Implement in-memory storage with inverted index
 - [X] Implement Write-Ahead Log for durability
 - [ ] Implement XOR compression for float64 values
@@ -31,26 +31,26 @@
 3. Request metrics from Prometheus:
     ```bash
     curl -s http://localhost:9090/api/v1/query?query=http_requests_total | json_pp
-{
-   "data" : {
-      "result" : [
-         {
-            "metric" : {
-               "__name__" : "http_requests_total",
-               "handler" : "/",
-               "instance" : "host.docker.internal:8080",
-               "job" : "testapp",
-               "method" : "GET"
-            },
-            "value" : [
-               1751220927.244,
-               "4"
-            ]
-         }
-      ],
-      "resultType" : "vector"
-   },
-   "status" : "success"
-}
+   {
+      "data" : {
+         "result" : [
+            {
+               "metric" : {
+                  "__name__" : "http_requests_total",
+                  "handler" : "/",
+                  "instance" : "host.docker.internal:8080",
+                  "job" : "testapp",
+                  "method" : "GET"
+               },
+               "value" : [
+                  1751220927.244,
+                  "4"
+               ]
+            }
+         ],
+         "resultType" : "vector"
+      },
+      "status" : "success"
+   }
     ```
 
