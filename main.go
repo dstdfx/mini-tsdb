@@ -37,6 +37,9 @@ func main() {
 
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 
+	// Make sure the WAL partitions directory exists
+	os.MkdirAll(cfg.WALPartitionsPath, 0755)
+
 	storage := storage.NewInMemory()
 	w := wal.New(logger, wal.Opts{
 		PartitionSizeInSec: cfg.PartitionSizeInSec,

@@ -28,3 +28,11 @@ services:
       - "8080:8080"
     environment:
       - PROMETHEUS_URL=http://host.docker.internal:9090
+
+  mini-tsdb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "9201:9201"
+
